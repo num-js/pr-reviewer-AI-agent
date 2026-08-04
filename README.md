@@ -1,6 +1,6 @@
 # GitHub Pull Request Reviewer
 
-A full-stack web application that takes a **GitHub pull request URL**, loads the PR metadata and diffs via the **GitHub REST API**, asks **OpenAI** for a structured code review, then **posts comments back to the PR** (inline review comments when GitHub accepts them; otherwise a single PR/issue comment with the full summary).
+A full-stack web application that takes a **GitHub pull request URL**, loads the PR metadata and diffs via the **GitHub REST API**, asks **OpenRouter** for a structured code review, then **posts comments back to the PR** (inline review comments when GitHub accepts them; otherwise a single PR/issue comment with the full summary).
 
 ---
 
@@ -44,7 +44,7 @@ A full-stack web application that takes a **GitHub pull request URL**, loads the
 | **Frontend** | React + TypeScript + Tailwind; PR URL input; loading and success/error states; activity log (server + client messages). |
 | **Validation** | Debounced PR URL validation (`https://github.com/{owner}/{repo}/pull/{number}`). |
 | **Resilience** | Client-side retries with backoff on failed review requests. |
-| **Backend** | Express `POST /api/review-pr`; modular `githubService`, `openaiService`, `reviewController`. |
+| **Backend** | Express `POST /api/review-pr`; modular `githubService`, `openRouterService`, `reviewController`. |
 | **AI output** | JSON array: `{ file, line, comment }` per finding. |
 | **GitHub** | Inline PR review comments on the PR head; fallback issue comment if no inline comment succeeds. |
 
@@ -64,19 +64,19 @@ flowchart LR
     API[Express]
     RC[reviewController]
     GH[githubService]
-    OAI[openaiService]
+    OR[openRouterService]
   end
   subgraph external [External APIs]
     GITHUB[GitHub REST API]
-    OPENAI[OpenAI API]
+    OPENROUTER[OpenRouter API]
   end
   UI --> Proxy
   Proxy --> API
   API --> RC
   RC --> GH
-  RC --> OAI
+  RC --> OR
   GH --> GITHUB
-  OAI --> OPENAI
+  OR --> OPENROUTER
 ```
 
 In **development**, the frontend talks to the same origin (`localhost:5173`); Vite forwards `/api/*` to the Express server (default `http://localhost:3001`). In **production**, you typically serve the built static files and point the UI at your API base URL (or put both behind one reverse proxy).
@@ -89,7 +89,7 @@ In **development**, the frontend talks to the same origin (`localhost:5173`); Vi
 |--------|----------------|
 | **Frontend** | React 18, TypeScript, Vite 5, Tailwind CSS 3 |
 | **Backend** | Node.js 18+ (native `fetch`), Express 4, ES modules |
-| **AI** | Official [`openai`](https://www.npmjs.com/package/openai) npm package (Chat Completions) |
+| **AI** | OpenRouter Chat Completions API via native `fetch` (`https://openrouter.ai/api/v1/chat/completions`) |
 | **GitHub** | REST API v3 (`api.github.com`), `Bearer` token, `X-GitHub-Api-Version` header |
 
 ---
@@ -106,7 +106,7 @@ pr-revewer-agent-githuh/
 │   │   └── reviewController.js
 │   └── services/
 │       ├── githubService.js  # URL parse, PR/files fetch, comments
-│       └── openaiService.js  # Prompt + structured JSON review
+│       └── openRouterService.js  # Prompt + structured JSON review
 └── frontend/
     ├── vite.config.ts        # Dev server + /api proxy
     ├── src/
@@ -125,7 +125,7 @@ Environment variables are read only from **`backend/.env`** (path resolved next 
 - **Node.js 18 or newer** (required for global `fetch` in the backend).
 - **npm** (or compatible client) to install dependencies.
 - A **GitHub account** and a token with rights to read the target repo and create PR/issue comments (see [GitHub token permissions](#github-token-permissions)).
-- An **OpenAI API key** with access to the model you configure (default: `gpt-4o-mini`).
+- An **OpenRouter API key** with access to the model you configure (default: `openai/gpt-4o-mini`).
 
 ---
 
@@ -144,19 +144,19 @@ cp .env.example backend/.env
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GITHUB_TOKEN` | **Yes** | GitHub personal access token (classic or fine-grained) used for all GitHub API calls. |
-| `OPENAI_API_KEY` | **Yes** | OpenAI API secret key. |
+| `OPENROUTER_API_KEY` | **Yes** | OpenRouter API secret key. |
 | `PORT` | No | HTTP port for the API. Default: `3001`. |
 | `CORS_ORIGIN` | No | Allowed browser origin for CORS (e.g. `http://localhost:5173`). If unset, the server reflects a permissive default suitable for local dev; set explicitly in production. |
-| `OPENAI_MODEL` | No | Chat model id. Default: `gpt-4o-mini`. |
+| `OPENROUTER_MODEL` | No | OpenRouter model id. Default: `openai/gpt-4o-mini`. |
 
 Example `backend/.env`:
 
 ```env
 GITHUB_TOKEN=ghp_xxxxxxxx
-OPENAI_API_KEY=sk-xxxxxxxx
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxx
 PORT=3001
 CORS_ORIGIN=http://localhost:5173
-OPENAI_MODEL=gpt-4o-mini
+OPENROUTER_MODEL=openai/gpt-4o-mini
 ```
 
 ---
@@ -266,7 +266,7 @@ Liveness check.
 
 ### `POST /api/review-pr`
 
-Runs the full review: parse URL → GitHub PR + files → OpenAI → GitHub comments.
+Runs the full review: parse URL → GitHub PR + files → OpenRouter → GitHub comments.
 
 **Headers**
 
@@ -321,7 +321,7 @@ Missing or invalid `prUrl`, or invalid URL format.
 
 **Server / upstream errors** `4xx` / `5xx`
 
-GitHub or OpenAI failures surface with `ok: false` and an `error` message when handled in the controller; `logs` may contain prior steps.
+GitHub or OpenRouter failures surface with `ok: false` and an `error` message when handled in the controller; `logs` may contain prior steps.
 
 ---
 
@@ -329,8 +329,8 @@ GitHub or OpenAI failures surface with `ok: false` and an `error` message when h
 
 1. **Parse URL** — Expects `github.com/{owner}/{repo}/pull/{number}` (http/https allowed).  
 2. **GitHub: pull request** — Fetches title, body, head `commit_id`.  
-3. **GitHub: changed files** — Lists files with patches (paginated); large aggregated text may be truncated before the model (see `openaiService.js`).  
-4. **OpenAI** — System prompt: senior engineer code review; user message includes title, description, and diffs. Model must return **only** a JSON **array** of `{ "file", "line", "comment" }`.  
+3. **GitHub: changed files** — Lists files with patches (paginated); large aggregated text may be truncated before the model (see `openRouterService.js`).  
+4. **OpenRouter** — System prompt: senior engineer code review; user message includes title, description, and diffs. Model must return **only** a JSON **array** of `{ "file", "line", "comment" }`.  
 5. **GitHub: comments** — For each suggestion, creates a [pull request review comment](https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request) on the PR head (`side: RIGHT`). If **none** succeed, creates one [issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment) on the PR with a markdown summary.
 
 **Line numbers:** GitHub expects the line to exist on the **right-hand** side of the diff for that commit. The model is instructed accordingly; mismatches still produce entries in `inlineErrors`.
@@ -340,7 +340,7 @@ GitHub or OpenAI failures surface with `ok: false` and an `error` message when h
 ## Production deployment
 
 - Run the backend on a reachable host; restrict `CORS_ORIGIN` to your real front-end origin.  
-- Do not expose `OPENAI_API_KEY` or `GITHUB_TOKEN` to the browser; only the backend uses them.  
+- Do not expose `OPENROUTER_API_KEY` or `GITHUB_TOKEN` to the browser; only the backend uses them.  
 - Serve `frontend/dist` over HTTPS in production.  
 - If the UI is not on the same host as the API, configure your build or server so API calls hit the correct base URL (the stock Vite app uses relative `/api` paths, which assume a shared reverse proxy or same-origin deployment).
 
@@ -352,9 +352,9 @@ GitHub or OpenAI failures surface with `ok: false` and an `error` message when h
 |---------|------------------|
 | `401` / `403` from GitHub | Token expired, missing `repo` / pull-request permissions, or fine-grained token not allowed on that repo. |
 | Inline comments fail, fallback only | Model line numbers not on changed lines; binary files; or GitHub rejecting `path`/`line`. See `inlineErrors` in the API response. |
-| `OPENAI_API_KEY is not set` | `backend/.env` missing or wrong path; ensure you run the server from any cwd (env is loaded from `backend/.env` next to `server.js`). |
+| `OPENROUTER_API_KEY is not set` | `backend/.env` missing or wrong path; ensure you run the server from any cwd (env is loaded from `backend/.env` next to `server.js`). |
 | CORS errors in browser | Set `CORS_ORIGIN` to your exact front-end origin (scheme + host + port). |
-| Empty or invalid AI JSON | Rare model drift; retry or switch `OPENAI_MODEL`. Invalid JSON throws in `openaiService.js` and returns an error response. |
+| Empty or invalid AI JSON | Rare model drift; retry or switch `OPENROUTER_MODEL`. Invalid JSON throws in `openRouterService.js` and returns an error response. |
 | Frontend cannot reach API | Dev: confirm backend on port 3001 and Vite proxy in `vite.config.ts`. Prod: proxy or CORS as above. |
 
 ---
@@ -362,7 +362,7 @@ GitHub or OpenAI failures surface with `ok: false` and an `error` message when h
 ## Security
 
 - **Never** commit `backend/.env` or real tokens to git. The template is `.env.example` only.  
-- **Never** embed `GITHUB_TOKEN` or `OPENAI_API_KEY` in frontend code or public repos.  
+- **Never** embed `GITHUB_TOKEN` or `OPENROUTER_API_KEY` in frontend code or public repos.  
 - Rotate tokens if they leak. Prefer fine-grained tokens scoped to specific repositories when possible.  
 - This MVP is intended for **trusted operators**; it does not implement multi-user auth, rate limiting, or PR allowlists. Harden before exposing to the public internet.
 

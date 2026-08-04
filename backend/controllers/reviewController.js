@@ -5,7 +5,7 @@ import {
   createPullRequestReviewComment,
   createIssueComment,
 } from "../services/githubService.js";
-import { generateStructuredReview } from "../services/openaiService.js";
+import { generateStructuredReview } from "../services/openRouterService.js";
 
 /**
  * POST /api/review-pr
@@ -64,7 +64,7 @@ export async function reviewPr(req, res) {
     };
 
     const suggestions = await generateStructuredReview(prContext);
-    log(`OpenAI returned ${suggestions.length} suggestion(s)`);
+    log(`OpenRouter returned ${suggestions.length} suggestion(s)`);
 
     const postedInline = [];
     const inlineErrors = [];
