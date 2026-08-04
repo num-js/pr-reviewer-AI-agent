@@ -6,6 +6,7 @@ type Suggestion = {
   file: string;
   line: number;
   comment: string;
+  suggestedCode?: string;
 };
 
 type PreviewItem = Suggestion & {
@@ -32,6 +33,7 @@ type PostSuccess = {
   suggestionsCount: number;
   postedInlineCount: number;
   fallbackPosted: boolean;
+  summaryPosted?: boolean;
   postedInline: { file: string; line: number }[];
   inlineErrors: { file: string; line: number; message: string }[];
   logs: string[];
@@ -49,6 +51,7 @@ type ApiBody = {
   suggestionsCount?: number;
   postedInlineCount?: number;
   fallbackPosted?: boolean;
+  summaryPosted?: boolean;
   postedInline?: { file: string; line: number }[];
   inlineErrors?: { file: string; line: number; message: string }[];
 };
@@ -227,11 +230,14 @@ export default function App() {
     setMessage("");
 
     try {
-      const comments = selectedItems.map(({ file, line, comment }) => ({
-        file,
-        line,
-        comment,
-      }));
+      const comments = selectedItems.map(
+        ({ file, line, comment, suggestedCode }) => ({
+          file,
+          line,
+          comment,
+          suggestedCode: suggestedCode || "",
+        })
+      );
       const data = await fetchJsonWithRetry<PostSuccess>(
         "/api/review-pr/post",
         { prUrl: url, comments },
@@ -245,8 +251,8 @@ export default function App() {
       setMessage(
         `Review posted for ${data.owner}/${data.repo}#${data.pullNumber}.` +
           (data.fallbackPosted
-            ? " A general PR comment was used because no inline comments succeeded."
-            : ` ${data.postedInlineCount} inline comment(s).`)
+            ? " Inline comments could not be posted; a detailed PR summary comment was added."
+            : ` ${data.postedInlineCount} inline comment(s) plus a PR summary.`)
       );
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -400,6 +406,16 @@ export default function App() {
                           <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
                             {item.comment}
                           </p>
+                          {item.suggestedCode?.trim() ? (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                Suggested code
+                              </p>
+                              <pre className="max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/90 p-2 font-mono text-xs text-slate-300 whitespace-pre-wrap break-words">
+                                {item.suggestedCode}
+                              </pre>
+                            </div>
+                          ) : null}
                         </div>
                         <button
                           type="button"

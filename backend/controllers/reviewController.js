@@ -50,6 +50,110 @@ function isValidComment(item) {
   );
 }
 
+const EXT_LANG = {
+  ts: "ts",
+  tsx: "tsx",
+  js: "js",
+  jsx: "jsx",
+  mjs: "js",
+  cjs: "js",
+  py: "python",
+  rb: "ruby",
+  go: "go",
+  rs: "rust",
+  java: "java",
+  kt: "kotlin",
+  swift: "swift",
+  cs: "csharp",
+  php: "php",
+  sh: "bash",
+  bash: "bash",
+  sql: "sql",
+  yml: "yaml",
+  yaml: "yaml",
+  json: "json",
+  md: "markdown",
+  css: "css",
+  scss: "scss",
+  html: "html",
+  vue: "vue",
+  svelte: "svelte",
+};
+
+/**
+ * @param {string} filePath
+ * @returns {string}
+ */
+function languageFromPath(filePath) {
+  const base = String(filePath || "").split("/").pop() || "";
+  const ext = base.includes(".") ? base.split(".").pop().toLowerCase() : "";
+  return EXT_LANG[ext] || "";
+}
+
+/**
+ * @param {{ file: string, suggestedCode?: string }} item
+ * @returns {string}
+ */
+function formatSuggestedCodeBlock(item) {
+  const code = String(item.suggestedCode || "").trim();
+  if (!code) return "";
+  const lang = languageFromPath(item.file);
+  return `**Suggested change:**\n\`\`\`${lang}\n${code}\n\`\`\``;
+}
+
+/**
+ * @param {{ file: string, comment: string, suggestedCode?: string }} item
+ * @returns {string}
+ */
+function formatInlineCommentBody(item) {
+  const parts = [item.comment.trim()];
+  const suggestion = formatSuggestedCodeBlock(item);
+  if (suggestion) {
+    parts.push("", suggestion);
+  }
+  return parts.join("\n");
+}
+
+/**
+ * @param {Array<{ file: string, line: number, comment: string, suggestedCode?: string }>} comments
+ * @param {{ postedInlineCount: number, inlineErrorCount: number }} meta
+ * @returns {string}
+ */
+function formatReviewSummaryBody(comments, meta) {
+  const lines = [
+    "## PR review summary",
+    "",
+    `I reviewed this change set and selected **${comments.length}** finding(s) for follow-up. ` +
+      `${meta.postedInlineCount} inline comment(s) were posted on the diff` +
+      (meta.inlineErrorCount > 0
+        ? `; ${meta.inlineErrorCount} could not be anchored to a line and are included below.`
+        : "."),
+    "",
+    "### Findings",
+    "",
+  ];
+
+  comments.forEach((s, i) => {
+    lines.push(`${i + 1}. **\`${s.file}:${s.line}\`**`);
+    lines.push("");
+    lines.push(s.comment.trim());
+    const suggestion = formatSuggestedCodeBlock(s);
+    if (suggestion) {
+      lines.push("");
+      lines.push(suggestion);
+    }
+    lines.push("");
+  });
+
+  lines.push("---");
+  lines.push("");
+  lines.push(
+    "Please address the higher-risk items (correctness, security, data integrity) before merge, and leave a short note on any findings you intentionally defer."
+  );
+
+  return lines.join("\n");
+}
+
 /**
  * POST /api/review-pr/generate
  * Body: { prUrl: string }
@@ -104,7 +208,7 @@ export async function generateReview(req, res) {
 
 /**
  * POST /api/review-pr/post
- * Body: { prUrl: string, comments: Array<{ file, line, comment }> }
+ * Body: { prUrl: string, comments: Array<{ file, line, comment, suggestedCode? }> }
  */
 export async function postReview(req, res) {
   const { logs, log } = createLogger();
@@ -126,6 +230,7 @@ export async function postReview(req, res) {
       file: String(c.file).trim(),
       line: Number(c.line),
       comment: String(c.comment).trim(),
+      suggestedCode: String(c.suggestedCode || "").trim(),
     }));
 
     if (comments.length === 0) {
@@ -155,7 +260,7 @@ export async function postReview(req, res) {
     for (const s of comments) {
       try {
         await createPullRequestReviewComment(owner, repo, pullNumber, {
-          body: s.comment,
+          body: formatInlineCommentBody(s),
           commit_id: headSha,
           path: s.file,
           line: Math.max(1, Math.floor(s.line)),
@@ -173,21 +278,15 @@ export async function postReview(req, res) {
       }
     }
 
-    let fallbackPosted = false;
-    if (postedInline.length === 0 && comments.length > 0) {
-      const body = [
-        "## Automated PR review (AI)",
-        "",
-        "Inline comments could not be posted. Summary:",
-        "",
-        ...comments.map(
-          (s, i) => `${i + 1}. **${s.file}:${s.line}** — ${s.comment}`
-        ),
-      ].join("\n");
-      await createIssueComment(owner, repo, pullNumber, body);
-      fallbackPosted = true;
-      log("Posted fallback issue comment with full review");
-    } else if (inlineErrors.length > 0) {
+    const summaryBody = formatReviewSummaryBody(comments, {
+      postedInlineCount: postedInline.length,
+      inlineErrorCount: inlineErrors.length,
+    });
+    await createIssueComment(owner, repo, pullNumber, summaryBody);
+    log("Posted PR review summary comment");
+
+    const fallbackPosted = postedInline.length === 0;
+    if (inlineErrors.length > 0 && !fallbackPosted) {
       log(
         `Partial inline failures: ${inlineErrors.length} (see response inlineErrors)`
       );
@@ -202,6 +301,7 @@ export async function postReview(req, res) {
       suggestionsCount: comments.length,
       postedInlineCount: postedInline.length,
       fallbackPosted,
+      summaryPosted: true,
       postedInline,
       inlineErrors,
       logs,
