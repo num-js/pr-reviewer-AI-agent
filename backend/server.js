@@ -6,7 +6,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
 import express from "express";
 import cors from "cors";
-import { reviewPr } from "./controllers/reviewController.js";
+import {
+  generateReview,
+  postReview,
+} from "./controllers/reviewController.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -14,7 +17,8 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({ origin: process.env.CORS_ORIGIN || true }));
 app.use(express.json({ limit: "2mb" }));
 
-app.post("/api/review-pr", reviewPr);
+app.post("/api/review-pr/generate", generateReview);
+app.post("/api/review-pr/post", postReview);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
