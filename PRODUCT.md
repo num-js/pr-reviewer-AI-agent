@@ -43,3 +43,19 @@ Calm precision with editorial review language (severity/status accents) and rest
 ## Accessibility
 
 WCAG AA contrast targets; visible focus rings; reduced-motion alternatives for all animations.
+
+## Versioning
+
+Product version tracks meaningful capability changes (semver-style). Current release: **1.2.0**.
+
+| Version | Date | Summary |
+|---------|------|---------|
+| **1.2.0** | 2026-08-04 | Browser review history (IndexedDB): save on generate, posted/not-posted status, post or delete from History. Responsive app header/footer. |
+| **1.1.0** | 2026-08-04 | UI craft revamp (Editorial Diff + Signal Glass, expressive motion). Preview-before-post flow. Professional EM review tone, suggested code in comments, PR-level summary after post. OpenRouter instead of OpenAI SDK. |
+| **1.0.0** | — | Initial release: paste PR URL → AI review → post inline GitHub comments (with fallback issue comment). |
+
+### Change log notes
+
+- **1.2.0** — History is local to the browser only (no server sync). Cap: 200 newest entries.
+- **1.1.0** — Generate and post are separate API steps (`/api/review-pr/generate`, `/api/review-pr/post`). Visual direction locked in this document.
+- Bump this table when shipping user-visible product changes; keep entries short and outcome-focused.
