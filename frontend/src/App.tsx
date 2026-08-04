@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { AppFooter } from "./components/AppFooter";
+import { AppHeader } from "./components/AppHeader";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { isValidPrUrl, prUrlHint } from "./lib/prUrl";
 
@@ -131,7 +133,7 @@ export default function App() {
   const [items, setItems] = useState<PreviewItem[]>([]);
   const [result, setResult] = useState<PostSuccess | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [logOpen, setLogOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(true);
 
   const debouncedHint = useMemo(
     () => prUrlHint(debouncedUrl),
@@ -271,8 +273,28 @@ export default function App() {
     }
   }, [prUrl, selectedItems, appendLogs, clientLog]);
 
+  const scrollToReview = useCallback(() => {
+    document.getElementById("review")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    window.setTimeout(() => {
+      document.getElementById("pr-url")?.focus();
+    }, 280);
+  }, []);
+
+  const scrollToActivity = useCallback(() => {
+    setLogOpen(true);
+    window.setTimeout(() => {
+      document.getElementById("activity")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 40);
+  }, []);
+
   return (
-    <div className="app-atmosphere relative min-h-screen overflow-x-hidden">
+    <div className="app-atmosphere relative flex min-h-screen flex-col overflow-x-hidden">
       <div
         className="pointer-events-none absolute inset-0 opacity-40"
         aria-hidden
@@ -285,12 +307,13 @@ export default function App() {
         }}
       />
 
-      <div className="relative mx-auto flex max-w-2xl flex-col gap-6 px-4 py-12 sm:py-16">
-        <header className="animate-fade-up space-y-4 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-sm text-muted shadow-panel backdrop-blur-md">
-            <BrandMark />
-            <span>GitHub + OpenRouter</span>
-          </div>
+      <AppHeader
+        onReviewClick={scrollToReview}
+        onActivityClick={scrollToActivity}
+      />
+
+      <main className="relative mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-8 sm:py-12">
+        <div className="animate-fade-up space-y-3 text-center sm:space-y-4">
           <h1 className="text-balance text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
             Pull request reviewer
           </h1>
@@ -298,9 +321,12 @@ export default function App() {
             Paste a PR link, curate the AI findings, then post only what matters
             — with suggested code and a review summary.
           </p>
-        </header>
+        </div>
 
-        <section className="glass-elevated animate-fade-up rounded-2xl p-5 sm:p-6 [animation-delay:60ms]">
+        <section
+          id="review"
+          className="glass-elevated animate-fade-up scroll-mt-20 rounded-2xl p-5 sm:p-6 [animation-delay:60ms]"
+        >
           <label
             htmlFor="pr-url"
             className="mb-2 block text-sm font-medium text-ink"
@@ -568,7 +594,10 @@ export default function App() {
           )}
         </section>
 
-        <section className="glass-panel animate-fade-up rounded-2xl [animation-delay:120ms]">
+        <section
+          id="activity"
+          className="glass-panel animate-fade-up scroll-mt-20 rounded-2xl [animation-delay:120ms]"
+        >
           <button
             type="button"
             onClick={() => setLogOpen((o) => !o)}
@@ -614,19 +643,10 @@ export default function App() {
             </div>
           )}
         </section>
-      </div>
-    </div>
-  );
-}
+      </main>
 
-function BrandMark() {
-  return (
-    <span
-      className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-[color-mix(in_oklab,var(--accent)_22%,transparent)] text-[10px] font-bold text-accent"
-      aria-hidden
-    >
-      PR
-    </span>
+      <AppFooter />
+    </div>
   );
 }
 
