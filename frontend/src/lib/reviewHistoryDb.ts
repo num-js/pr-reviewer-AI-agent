@@ -10,9 +10,13 @@ export type ReviewHistoryComment = {
   suggestedCode?: string;
 };
 
+export type ReviewHistoryStatus = "generated" | "posted";
+
 export type ReviewHistoryEntry = {
   id: string;
   savedAt: number;
+  postedAt?: number;
+  status: ReviewHistoryStatus;
   prUrl: string;
   owner: string;
   repo: string;
@@ -24,6 +28,16 @@ export type ReviewHistoryEntry = {
   fallbackPosted: boolean;
   summaryPosted?: boolean;
 };
+
+function normalizeEntry(raw: ReviewHistoryEntry): ReviewHistoryEntry {
+  const status: ReviewHistoryStatus =
+    raw.status === "generated" || raw.status === "posted"
+      ? raw.status
+      : raw.postedInlineCount > 0 || raw.fallbackPosted
+        ? "posted"
+        : "generated";
+  return { ...raw, status };
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -76,20 +90,24 @@ async function pruneOldest(db: IDBDatabase): Promise<void> {
   await txDone(tx);
 }
 
-export async function addReview(
+export async function saveReview(
   entry: ReviewHistoryEntry
 ): Promise<ReviewHistoryEntry> {
   const db = await openDb();
   try {
+    const normalized = normalizeEntry(entry);
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(entry);
+    tx.objectStore(STORE).put(normalized);
     await txDone(tx);
     await pruneOldest(db);
-    return entry;
+    return normalized;
   } finally {
     db.close();
   }
 }
+
+/** @deprecated use saveReview */
+export const addReview = saveReview;
 
 export async function listReviews(): Promise<ReviewHistoryEntry[]> {
   const db = await openDb();
@@ -98,7 +116,7 @@ export async function listReviews(): Promise<ReviewHistoryEntry[]> {
     const index = tx.objectStore(STORE).index("savedAt");
     const all = await reqToPromise(index.getAll());
     await txDone(tx);
-    return all.reverse();
+    return all.map(normalizeEntry).reverse();
   } finally {
     db.close();
   }
@@ -112,7 +130,7 @@ export async function getReview(
     const tx = db.transaction(STORE, "readonly");
     const entry = await reqToPromise(tx.objectStore(STORE).get(id));
     await txDone(tx);
-    return entry;
+    return entry ? normalizeEntry(entry) : undefined;
   } finally {
     db.close();
   }

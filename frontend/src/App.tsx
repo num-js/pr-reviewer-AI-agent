@@ -3,7 +3,7 @@ import { AppFooter } from "./components/AppFooter";
 import { AppHeader } from "./components/AppHeader";
 import { ReviewHistory } from "./components/ReviewHistory";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import { addReview } from "./lib/reviewHistoryDb";
+import { getReview, saveReview } from "./lib/reviewHistoryDb";
 import { isValidPrUrl, prUrlHint } from "./lib/prUrl";
 
 type Suggestion = {
@@ -137,6 +137,7 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [logOpen, setLogOpen] = useState(true);
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
   const debouncedHint = useMemo(
     () => prUrlHint(debouncedUrl),
@@ -178,6 +179,7 @@ export default function App() {
     setItems([]);
     setLogs([]);
     setLogOpen(true);
+    setActiveHistoryId(null);
 
     try {
       const data = await fetchJsonWithRetry<GenerateSuccess>(
@@ -192,13 +194,46 @@ export default function App() {
         pullNumber: data.pullNumber,
         prTitle: data.prTitle,
       });
-      setItems(toPreviewItems(data.suggestions || []));
+      const suggestions = data.suggestions || [];
+      setItems(toPreviewItems(suggestions));
       setStatus("preview");
       setMessage(
-        data.suggestions?.length
-          ? `${data.suggestions.length} comment(s) ready — uncheck or remove any you do not want, then post.`
+        suggestions.length
+          ? `${suggestions.length} comment(s) ready — uncheck or remove any you do not want, then post.`
           : "AI returned no comments for this PR."
       );
+      try {
+        const historyId = crypto.randomUUID();
+        await saveReview({
+          id: historyId,
+          savedAt: Date.now(),
+          status: "generated",
+          prUrl: url,
+          owner: data.owner,
+          repo: data.repo,
+          pullNumber: data.pullNumber,
+          prTitle: data.prTitle,
+          comments: suggestions.map((s) => ({
+            file: s.file,
+            line: s.line,
+            comment: s.comment,
+            suggestedCode: s.suggestedCode || "",
+          })),
+          suggestionsCount: suggestions.length,
+          postedInlineCount: 0,
+          fallbackPosted: false,
+          summaryPosted: false,
+        });
+        setActiveHistoryId(historyId);
+        setHistoryRefreshToken((n) => n + 1);
+        clientLog("Saved generated review to browser history");
+      } catch (saveErr) {
+        const msg =
+          saveErr instanceof Error
+            ? saveErr.message
+            : "Failed to save review history";
+        clientLog(`History save failed: ${msg}`);
+      }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       const withLogs = err as Error & { logs?: string[] };
@@ -264,9 +299,15 @@ export default function App() {
             : ` ${data.postedInlineCount} inline comment(s) plus a PR summary.`)
       );
       try {
-        await addReview({
-          id: crypto.randomUUID(),
-          savedAt: Date.now(),
+        const historyId = activeHistoryId || crypto.randomUUID();
+        const existing = activeHistoryId
+          ? await getReview(activeHistoryId)
+          : undefined;
+        await saveReview({
+          id: historyId,
+          savedAt: existing?.savedAt ?? Date.now(),
+          postedAt: Date.now(),
+          status: "posted",
           prUrl: url,
           owner: data.owner,
           repo: data.repo,
@@ -278,8 +319,9 @@ export default function App() {
           fallbackPosted: data.fallbackPosted,
           summaryPosted: data.summaryPosted,
         });
+        setActiveHistoryId(null);
         setHistoryRefreshToken((n) => n + 1);
-        clientLog("Saved review to browser history");
+        clientLog("Updated review history status to posted");
       } catch (saveErr) {
         const msg =
           saveErr instanceof Error
@@ -298,7 +340,7 @@ export default function App() {
     } finally {
       setPosting(false);
     }
-  }, [prUrl, selectedItems, appendLogs, clientLog]);
+  }, [prUrl, selectedItems, activeHistoryId, appendLogs, clientLog]);
 
   const scrollToReview = useCallback(() => {
     document.getElementById("review")?.scrollIntoView({
