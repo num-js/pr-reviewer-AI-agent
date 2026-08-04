@@ -161,10 +161,11 @@ export function ReviewHistory({ refreshToken }: ReviewHistoryProps) {
     >
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div>
-          <h2 className="text-sm font-medium text-ink">Review history</h2>
-          <p className="text-xs text-muted">
-            Saved when generated — post unposted reviews anytime
-          </p>
+          <h2 className="text-sm font-medium text-ink">Review history
+          <span className="ml-2 rounded-full border border-line px-2 py-0.5 font-mono text-xs text-muted">
+            {entries.length}
+          </span>
+          </h2>
         </div>
         <div className="flex items-center gap-2">
           {entries.length > 0 ? (
@@ -177,9 +178,6 @@ export function ReviewHistory({ refreshToken }: ReviewHistoryProps) {
               Clear all
             </button>
           ) : null}
-          <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs text-muted">
-            {entries.length}
-          </span>
         </div>
       </div>
 
