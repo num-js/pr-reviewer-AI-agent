@@ -46,8 +46,8 @@ A full-stack web application that takes a **GitHub pull request URL**, loads the
 | **Validation** | Debounced PR URL validation (`https://github.com/{owner}/{repo}/pull/{number}`). |
 | **Resilience** | Client-side retries with backoff on failed review requests. |
 | **Backend** | Express `POST /api/review-pr/generate` + `POST /api/review-pr/post`; modular `githubService`, `openRouterService`, `reviewController`. |
-| **AI output** | JSON array: `{ file, line, comment }` per finding. |
-| **GitHub** | Inline PR review comments on the PR head; fallback issue comment if no inline comment succeeds. |
+| **AI output** | JSON array: `{ file, line, comment, suggestedCode }` per finding. |
+| **GitHub** | Inline PR review comments (with suggested code when provided); always posts a PR-level summary comment. |
 
 ---
 
@@ -293,7 +293,12 @@ Fetches the PR and generates AI review comments **without** posting to GitHub.
   "pullNumber": 42,
   "prTitle": "…",
   "suggestions": [
-    { "file": "src/app.ts", "line": 10, "comment": "…" }
+    {
+      "file": "src/app.ts",
+      "line": 10,
+      "comment": "…",
+      "suggestedCode": "…"
+    }
   ],
   "logs": ["[ISO8601] …", "…"]
 }
@@ -301,7 +306,7 @@ Fetches the PR and generates AI review comments **without** posting to GitHub.
 
 | Field | Meaning |
 |--------|---------|
-| `suggestions` | AI review items (`file`, `line`, `comment`) ready for preview/selection. |
+| `suggestions` | AI review items (`file`, `line`, `comment`, optional `suggestedCode`) ready for preview/selection. |
 | `logs` | Timestamped log lines for debugging or UI display. |
 
 **Client errors** `400`
@@ -336,7 +341,12 @@ Posts selected review comments to the PR on GitHub.
 {
   "prUrl": "https://github.com/owner/repo/pull/42",
   "comments": [
-    { "file": "src/app.ts", "line": 10, "comment": "…" }
+    {
+      "file": "src/app.ts",
+      "line": 10,
+      "comment": "…",
+      "suggestedCode": "…"
+    }
   ]
 }
 ```
@@ -353,6 +363,7 @@ Posts selected review comments to the PR on GitHub.
   "suggestionsCount": 5,
   "postedInlineCount": 3,
   "fallbackPosted": false,
+  "summaryPosted": true,
   "postedInline": [{ "file": "src/app.ts", "line": 10 }],
   "inlineErrors": [{ "file": "src/app.ts", "line": 99, "message": "…" }],
   "logs": ["[ISO8601] …", "…"]
@@ -363,7 +374,8 @@ Posts selected review comments to the PR on GitHub.
 |--------|---------|
 | `suggestionsCount` | Number of comments submitted in the request. |
 | `postedInlineCount` | How many inline PR review comments GitHub accepted. |
-| `fallbackPosted` | `true` if **zero** inline comments succeeded but there were comments; a single issue/PR comment was posted instead. |
+| `fallbackPosted` | `true` if **zero** inline comments succeeded; the PR summary still carries the full review. |
+| `summaryPosted` | `true` when the detailed PR-level summary comment was posted (always on success). |
 | `postedInline` | Successfully created inline comments (file + line). |
 | `inlineErrors` | Items GitHub rejected (wrong line, path, permissions, etc.). |
 | `logs` | Timestamped log lines for debugging or UI display. |
@@ -381,9 +393,9 @@ GitHub failures surface with `ok: false` and an `error` message; `logs` may cont
 ## Review pipeline
 
 1. **Parse URL** — Expects `github.com/{owner}/{repo}/pull/{number}` (http/https allowed).  
-2. **Generate** (`/api/review-pr/generate`) — Fetches PR + changed files; OpenRouter returns a JSON **array** of `{ "file", "line", "comment" }` (large diffs may be truncated; see `openRouterService.js`). No GitHub comments are created yet.  
-3. **Preview (UI)** — User unchecks or removes unwanted comments.  
-4. **Post** (`/api/review-pr/post`) — Re-fetches PR head SHA; for each selected comment, creates a [pull request review comment](https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request) on the PR head (`side: RIGHT`). If **none** succeed, creates one [issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment) on the PR with a markdown summary.
+2. **Generate** (`/api/review-pr/generate`) — Fetches PR + changed files; OpenRouter returns a JSON **array** of `{ "file", "line", "comment", "suggestedCode" }` (large diffs may be truncated; see `openRouterService.js`). No GitHub comments are created yet.  
+3. **Preview (UI)** — User unchecks or removes unwanted comments (suggested code is shown when present).  
+4. **Post** (`/api/review-pr/post`) — Re-fetches PR head SHA; for each selected comment, creates a [pull request review comment](https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request) on the PR head (`side: RIGHT`), including a **Suggested change** code block when `suggestedCode` is non-empty. Then always creates one [issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment) with a detailed PR review summary.
 
 **Line numbers:** GitHub expects the line to exist on the **right-hand** side of the diff for that commit. The model is instructed accordingly; mismatches still produce entries in `inlineErrors`.
 
@@ -403,7 +415,7 @@ GitHub failures surface with `ok: false` and an `error` message; `logs` may cont
 | Symptom | Things to check |
 |---------|------------------|
 | `401` / `403` from GitHub | Token expired, missing `repo` / pull-request permissions, or fine-grained token not allowed on that repo. |
-| Inline comments fail, fallback only | Model line numbers not on changed lines; binary files; or GitHub rejecting `path`/`line`. See `inlineErrors` in the API response. |
+| Inline comments fail, summary still posted | Model line numbers not on changed lines; binary files; or GitHub rejecting `path`/`line`. See `inlineErrors`; a PR summary comment is still posted. |
 | `OPENROUTER_API_KEY is not set` | `backend/.env` missing or wrong path; ensure you run the server from any cwd (env is loaded from `backend/.env` next to `server.js`). |
 | CORS errors in browser | Set `CORS_ORIGIN` to your exact front-end origin (scheme + host + port). |
 | Empty or invalid AI JSON | Rare model drift; retry or switch `OPENROUTER_MODEL`. Invalid JSON throws in `openRouterService.js` and returns an error response. |

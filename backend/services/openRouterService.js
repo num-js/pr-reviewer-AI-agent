@@ -2,13 +2,32 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const MAX_CONTEXT_CHARS = 120_000;
 
+const SYSTEM_PROMPT = `You are a senior engineering manager with 10+ years of experience reviewing pull requests on production teams. You give clear, constructive, prioritized feedback that helps engineers ship safe, maintainable code.
+
+Tone and style:
+- Professional, respectful, and direct — like a strong EM in a written PR review
+- Explain why each issue matters (risk, maintainability, correctness, performance)
+- Prefer concrete guidance over vague preferences
+- No fluff, sarcasm, or personal criticism
+
+Output rules:
+- Respond with ONLY valid JSON (no markdown fences, no prose outside JSON)
+- JSON must be an array of objects with keys:
+  - "file" (string): path matching a changed file
+  - "line" (integer): line in the NEW/right-hand version of the file; must appear in the diff
+  - "comment" (string): finding + why it matters + what to do
+  - "suggestedCode" (string): focused code the author should apply, or "" when a code snippet is not appropriate
+- Use at least 1 and at most 25 items
+- If a finding applies to the whole file, use the first changed line number from the diff for that file
+- Include suggestedCode whenever a concrete fix exists; omit code (use "") for process, design, or naming-only feedback`;
+
 /**
  * @param {{
  *   title: string,
  *   description: string,
  *   files: Array<{ filename: string, status: string, patch?: string }>
  * }} prContext
- * @returns {Promise<Array<{ file: string, line: number, comment: string }>>}
+ * @returns {Promise<Array<{ file: string, line: number, comment: string, suggestedCode: string }>>}
  */
 export async function generateStructuredReview(prContext) {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -29,7 +48,9 @@ export async function generateStructuredReview(prContext) {
     bundle += chunk;
   }
 
-  const userContent = `Pull request title: ${prContext.title}
+  const userContent = `Review this pull request as you would for your engineering team before merge.
+
+Pull request title: ${prContext.title}
 
 Pull request description:
 ${prContext.description || "(none)"}
@@ -37,24 +58,20 @@ ${prContext.description || "(none)"}
 Changed files and diffs:
 ${bundle}
 
-Respond with ONLY valid JSON (no markdown fences): an array of objects with keys "file" (string path matching a changed file), "line" (integer: line number in the NEW/right-hand version of the file where the comment applies — must be a line that appears in the diff), and "comment" (string: concise actionable review note). Use at least 1 and at most 25 items. If a finding applies to the whole file, use the first changed line number from the diff for that file.`;
+Return ONLY a JSON array of review findings with keys file, line, comment, and suggestedCode as specified. Prioritize correctness and risk, then maintainability, then polish.`;
 
   const response = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": process.env.CORS_ORIGIN,
+      "HTTP-Referer": process.env.CORS_ORIGIN || "http://localhost:5173",
       "X-OpenRouter-Title": "PR Reviewer Agent",
     },
     body: JSON.stringify({
       model,
       messages: [
-        {
-          role: "system",
-          content:
-            "You are a senior software engineer performing a detailed code review. Provide actionable, concise feedback. Output must be ONLY a JSON array of objects with keys: file (string), line (integer), comment (string). No markdown, no explanation outside the JSON.",
-        },
+        { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userContent },
       ],
       temperature: 0.3,
@@ -73,7 +90,7 @@ Respond with ONLY valid JSON (no markdown fences): an array of objects with keys
 
 /**
  * @param {string} text
- * @returns {Array<{ file: string, line: number, comment: string }>}
+ * @returns {Array<{ file: string, line: number, comment: string, suggestedCode: string }>}
  */
 function parseReviewJson(text) {
   let raw = text;
@@ -94,6 +111,7 @@ function parseReviewJson(text) {
       file: String(item.file || "").trim(),
       line: Number(item.line),
       comment: String(item.comment || "").trim(),
+      suggestedCode: String(item.suggestedCode || "").trim(),
     }))
     .filter((item) => item.file && item.comment && Number.isFinite(item.line));
 }
