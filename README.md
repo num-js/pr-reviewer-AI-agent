@@ -1,6 +1,6 @@
 # GitHub Pull Request Reviewer
 
-A full-stack web application that takes a **GitHub pull request URL**, loads the PR metadata and diffs via the **GitHub REST API**, asks **OpenRouter** for a structured code review, then **posts comments back to the PR** (inline review comments when GitHub accepts them; otherwise a single PR/issue comment with the full summary).
+A full-stack web application that takes a **GitHub pull request URL**, loads the PR metadata and diffs via the **GitHub REST API**, asks **OpenRouter** for a structured code review, lets you **preview and deselect comments**, then **posts the selected comments back to the PR** (inline review comments when GitHub accepts them; otherwise a single PR/issue comment with the full summary).
 
 ---
 
@@ -27,7 +27,8 @@ A full-stack web application that takes a **GitHub pull request URL**, loads the
   - [Using the web UI](#using-the-web-ui)
   - [HTTP API reference](#http-api-reference)
     - [`GET /api/health`](#get-apihealth)
-    - [`POST /api/review-pr`](#post-apireview-pr)
+    - [`POST /api/review-pr/generate`](#post-apireview-prgenerate)
+    - [`POST /api/review-pr/post`](#post-apireview-prpost)
   - [Review pipeline](#review-pipeline)
   - [Production deployment](#production-deployment)
   - [Troubleshooting](#troubleshooting)
@@ -41,10 +42,10 @@ A full-stack web application that takes a **GitHub pull request URL**, loads the
 
 | Area | Details |
 |------|---------|
-| **Frontend** | React + TypeScript + Tailwind; PR URL input; loading and success/error states; activity log (server + client messages). |
+| **Frontend** | React + TypeScript + Tailwind; PR URL input; review preview checklist; loading and success/error states; activity log (server + client messages). |
 | **Validation** | Debounced PR URL validation (`https://github.com/{owner}/{repo}/pull/{number}`). |
 | **Resilience** | Client-side retries with backoff on failed review requests. |
-| **Backend** | Express `POST /api/review-pr`; modular `githubService`, `openRouterService`, `reviewController`. |
+| **Backend** | Express `POST /api/review-pr/generate` + `POST /api/review-pr/post`; modular `githubService`, `openRouterService`, `reviewController`. |
 | **AI output** | JSON array: `{ file, line, comment }` per finding. |
 | **GitHub** | Inline PR review comments on the PR head; fallback issue comment if no inline comment succeeds. |
 
@@ -240,11 +241,13 @@ Use a process manager (systemd, PM2, Docker, etc.) and inject `backend/.env` or 
 1. Open the app in the browser (dev: **http://localhost:5173**).  
 2. Paste a full GitHub PR URL, for example:  
    `https://github.com/facebook/react/pull/12345`  
-3. Click **Start review** and wait until the request finishes.  
-4. Inspect **Activity log** for server-side steps and any client retry messages.  
-5. On success, open the PR on GitHub: you should see **inline review comments** and/or a **single summary comment** if every inline attempt failed.
+3. Click **Start review** and wait for AI suggestions.  
+4. In the **review preview**, uncheck or **Remove** any comments you do not want.  
+5. Click **Post N to GitHub** to publish only the selected comments.  
+6. Inspect **Activity log** for server-side steps and any client retry messages.  
+7. On success, open the PR on GitHub: you should see **inline review comments** and/or a **single summary comment** if every inline attempt failed.
 
-The UI validates the URL shape (debounced). **Retry** appears after an error and re-runs the same flow.
+The UI validates the URL shape (debounced). **Retry** appears after an error and re-runs generation. **Cancel** discards the preview without posting.
 
 ---
 
@@ -264,9 +267,9 @@ Liveness check.
 
 ---
 
-### `POST /api/review-pr`
+### `POST /api/review-pr/generate`
 
-Runs the full review: parse URL → GitHub PR + files → OpenRouter → GitHub comments.
+Fetches the PR and generates AI review comments **without** posting to GitHub.
 
 **Headers**
 
@@ -277,6 +280,64 @@ Runs the full review: parse URL → GitHub PR + files → OpenRouter → GitHub 
 ```json
 {
   "prUrl": "https://github.com/owner/repo/pull/42"
+}
+```
+
+**Success** `200`
+
+```json
+{
+  "ok": true,
+  "owner": "owner",
+  "repo": "repo",
+  "pullNumber": 42,
+  "prTitle": "…",
+  "suggestions": [
+    { "file": "src/app.ts", "line": 10, "comment": "…" }
+  ],
+  "logs": ["[ISO8601] …", "…"]
+}
+```
+
+| Field | Meaning |
+|--------|---------|
+| `suggestions` | AI review items (`file`, `line`, `comment`) ready for preview/selection. |
+| `logs` | Timestamped log lines for debugging or UI display. |
+
+**Client errors** `400`
+
+Missing or invalid `prUrl`, or invalid URL format.
+
+```json
+{
+  "ok": false,
+  "error": "…",
+  "logs": []
+}
+```
+
+**Server / upstream errors** `4xx` / `5xx`
+
+GitHub or OpenRouter failures surface with `ok: false` and an `error` message; `logs` may contain prior steps.
+
+---
+
+### `POST /api/review-pr/post`
+
+Posts selected review comments to the PR on GitHub.
+
+**Headers**
+
+- `Content-Type: application/json`
+
+**Body**
+
+```json
+{
+  "prUrl": "https://github.com/owner/repo/pull/42",
+  "comments": [
+    { "file": "src/app.ts", "line": 10, "comment": "…" }
+  ]
 }
 ```
 
@@ -300,38 +361,29 @@ Runs the full review: parse URL → GitHub PR + files → OpenRouter → GitHub 
 
 | Field | Meaning |
 |--------|---------|
-| `suggestionsCount` | Number of AI items returned after parsing. |
+| `suggestionsCount` | Number of comments submitted in the request. |
 | `postedInlineCount` | How many inline PR review comments GitHub accepted. |
-| `fallbackPosted` | `true` if **zero** inline comments succeeded but there were suggestions; a single issue/PR comment was posted instead. |
+| `fallbackPosted` | `true` if **zero** inline comments succeeded but there were comments; a single issue/PR comment was posted instead. |
 | `postedInline` | Successfully created inline comments (file + line). |
 | `inlineErrors` | Items GitHub rejected (wrong line, path, permissions, etc.). |
 | `logs` | Timestamped log lines for debugging or UI display. |
 
 **Client errors** `400`
 
-Missing or invalid `prUrl`, or invalid URL format.
-
-```json
-{
-  "ok": false,
-  "error": "…",
-  "logs": []
-}
-```
+Missing/invalid `prUrl`, empty `comments`, or no valid comment objects.
 
 **Server / upstream errors** `4xx` / `5xx`
 
-GitHub or OpenRouter failures surface with `ok: false` and an `error` message when handled in the controller; `logs` may contain prior steps.
+GitHub failures surface with `ok: false` and an `error` message; `logs` may contain prior steps.
 
 ---
 
 ## Review pipeline
 
 1. **Parse URL** — Expects `github.com/{owner}/{repo}/pull/{number}` (http/https allowed).  
-2. **GitHub: pull request** — Fetches title, body, head `commit_id`.  
-3. **GitHub: changed files** — Lists files with patches (paginated); large aggregated text may be truncated before the model (see `openRouterService.js`).  
-4. **OpenRouter** — System prompt: senior engineer code review; user message includes title, description, and diffs. Model must return **only** a JSON **array** of `{ "file", "line", "comment" }`.  
-5. **GitHub: comments** — For each suggestion, creates a [pull request review comment](https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request) on the PR head (`side: RIGHT`). If **none** succeed, creates one [issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment) on the PR with a markdown summary.
+2. **Generate** (`/api/review-pr/generate`) — Fetches PR + changed files; OpenRouter returns a JSON **array** of `{ "file", "line", "comment" }` (large diffs may be truncated; see `openRouterService.js`). No GitHub comments are created yet.  
+3. **Preview (UI)** — User unchecks or removes unwanted comments.  
+4. **Post** (`/api/review-pr/post`) — Re-fetches PR head SHA; for each selected comment, creates a [pull request review comment](https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request) on the PR head (`side: RIGHT`). If **none** succeed, creates one [issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment) on the PR with a markdown summary.
 
 **Line numbers:** GitHub expects the line to exist on the **right-hand** side of the diff for that commit. The model is instructed accordingly; mismatches still produce entries in `inlineErrors`.
 
