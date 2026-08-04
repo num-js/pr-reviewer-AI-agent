@@ -17,13 +17,32 @@
 
 @layer base {
   body {
-    @apply min-h-screen antialiased font-sans text-ink;
+    @apply min-h-screen antialiased font-sans;
     background-color: var(--bg);
     color: var(--ink);
   }
 
   ::selection {
     background: color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
@@ -62,14 +81,31 @@
   }
 
   .skeleton-shimmer {
-    background: linear-gradient(
-      110deg,
-      color-mix(in oklab, var(--surface-elevated) 80%, transparent) 25%,
-      color-mix(in oklab, var(--glow) 18%, transparent) 45%,
-      color-mix(in oklab, var(--surface-elevated) 80%, transparent) 65%
+    position: relative;
+    overflow: hidden;
+    border: 1px solid color-mix(in oklab, var(--line) 80%, transparent);
+    background-color: color-mix(in oklab, var(--surface-elevated) 90%, var(--bg));
+    background-image: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 40%,
+      color-mix(in oklab, var(--glow) 28%, transparent) 50%,
+      transparent 60%,
+      transparent 100%
     );
-    background-size: 200% 100%;
-    animation: shimmer 1.6s linear infinite;
+    background-size: 220% 100%;
+    background-repeat: no-repeat;
+    animation:
+      skeleton-shimmer 2.6s linear infinite,
+      skeleton-pulse 2.8s ease-in-out infinite;
+  }
+
+  .skeleton-shimmer-delay-1 {
+    animation-delay: 0.12s, 0.12s;
+  }
+
+  .skeleton-shimmer-delay-2 {
+    animation-delay: 0.24s, 0.24s;
   }
 
   .focus-ring {
@@ -93,7 +129,7 @@
   .skeleton-shimmer {
     animation: none !important;
     transition: none !important;
-    opacity: 1 !important;
+    opacity: 0.7 !important;
     transform: none !important;
   }
 }

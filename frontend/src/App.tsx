@@ -368,10 +368,39 @@ export default function App() {
           )}
 
           {generating && (
-            <div className="mt-6 space-y-2 animate-fade-in" aria-hidden>
-              <div className="skeleton-shimmer h-3 w-2/3 rounded-full" />
-              <div className="skeleton-shimmer h-16 rounded-xl" />
-              <div className="skeleton-shimmer h-16 rounded-xl" />
+            <div
+              className="mt-6 space-y-3 animate-fade-in"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="text-xs font-medium text-muted">
+                Generating review findings…
+              </p>
+              <div className="skeleton-shimmer h-3 w-3/5 rounded-full" aria-hidden />
+              <div
+                className="skeleton-shimmer flex h-[4.5rem] flex-col justify-center gap-2 rounded-xl px-3"
+                aria-hidden
+              >
+                <div className="h-2 w-2/5 rounded-full bg-[color-mix(in_oklab,var(--ink)_12%,transparent)]" />
+                <div className="h-2 w-11/12 rounded-full bg-[color-mix(in_oklab,var(--ink)_10%,transparent)]" />
+                <div className="h-2 w-4/5 rounded-full bg-[color-mix(in_oklab,var(--ink)_10%,transparent)]" />
+              </div>
+              <div
+                className="skeleton-shimmer skeleton-shimmer-delay-1 flex h-[4.5rem] flex-col justify-center gap-2 rounded-xl px-3"
+                aria-hidden
+              >
+                <div className="h-2 w-1/3 rounded-full bg-[color-mix(in_oklab,var(--ink)_12%,transparent)]" />
+                <div className="h-2 w-10/12 rounded-full bg-[color-mix(in_oklab,var(--ink)_10%,transparent)]" />
+                <div className="h-2 w-2/3 rounded-full bg-[color-mix(in_oklab,var(--ink)_10%,transparent)]" />
+              </div>
+              <div
+                className="skeleton-shimmer skeleton-shimmer-delay-2 flex h-[4.5rem] flex-col justify-center gap-2 rounded-xl px-3"
+                aria-hidden
+              >
+                <div className="h-2 w-2/5 rounded-full bg-[color-mix(in_oklab,var(--ink)_12%,transparent)]" />
+                <div className="h-2 w-9/12 rounded-full bg-[color-mix(in_oklab,var(--ink)_10%,transparent)]" />
+                <div className="h-2 w-3/5 rounded-full bg-[color-mix(in_oklab,var(--ink)_10%,transparent)]" />
+              </div>
             </div>
           )}
 
