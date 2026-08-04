@@ -1,9 +1,14 @@
 type AppHeaderProps = {
   onReviewClick: () => void;
+  onHistoryClick: () => void;
   onActivityClick: () => void;
 };
 
-export function AppHeader({ onReviewClick, onActivityClick }: AppHeaderProps) {
+export function AppHeader({
+  onReviewClick,
+  onHistoryClick,
+  onActivityClick,
+}: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-line/80 bg-[color-mix(in_oklab,var(--bg)_78%,transparent)] backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
@@ -41,6 +46,13 @@ export function AppHeader({ onReviewClick, onActivityClick }: AppHeaderProps) {
             className="focus-ring rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted transition duration-200 ease-outExpo hover:bg-elevated hover:text-ink sm:px-3"
           >
             Review
+          </button>
+          <button
+            type="button"
+            onClick={onHistoryClick}
+            className="focus-ring rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted transition duration-200 ease-outExpo hover:bg-elevated hover:text-ink sm:px-3"
+          >
+            History
           </button>
           <button
             type="button"
